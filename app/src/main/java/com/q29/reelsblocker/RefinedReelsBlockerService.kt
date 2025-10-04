@@ -39,7 +39,6 @@ class RefinedReelsBlockerService : AccessibilityService() {
 
     private val targetApps = setOf(
         "com.instagram.android",
-        "com.facebook.katana",
         "com.google.android.youtube"
     )
 
@@ -123,7 +122,6 @@ class RefinedReelsBlockerService : AccessibilityService() {
 
         val isReels = when (packageName) {
             "com.instagram.android" -> detectInstagramReels(rootNode)
-            "com.facebook.katana" -> detectFacebookReels(rootNode)
             "com.google.android.youtube" -> detectYouTubeShorts(rootNode)
             else -> false
         }
@@ -259,32 +257,12 @@ class RefinedReelsBlockerService : AccessibilityService() {
         return shortFormContentInterface && !allowedStates
     }
 
-    private fun detectFacebookReels(rootNode: AccessibilityNodeInfo): Boolean {
-        // Facebook-specific view IDs for reels detection
-        val isReelLayout = !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/video_reels_container").isEmpty() ||
-                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/reels_tab_content").isEmpty() ||
-                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/watch_reels_player").isEmpty() ||
-                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/video_home_reels").isEmpty()
-
-        val isTimelineLayout = !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/news_feed_container").isEmpty() ||
-                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/newsfeed_story_message").isEmpty() ||
-                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/timeline_cover_photo").isEmpty()
-
-        val isMessengerLayout = !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/messenger_chat_head").isEmpty() ||
-                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/chat_composer").isEmpty()
-
-        Log.d(TAG, "Facebook Layout Detection: reel=$isReelLayout, timeline=$isTimelineLayout, messenger=$isMessengerLayout")
-
-        return isReelLayout && !isTimelineLayout && !isMessengerLayout
-    }
-
     private fun blockContent(packageName: String) {
         if (isBlocked) return
 
         isBlocked = true
         val appName = when (packageName) {
             "com.instagram.android" -> "INSTAGRAM"
-            "com.facebook.katana" -> "FACEBOOK"
             "com.google.android.youtube" -> "YOUTUBE"
             else -> "APP"
         }
