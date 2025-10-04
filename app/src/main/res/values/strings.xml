@@ -9,5 +9,5 @@
     <string name="settings_title">SETTINGS</string>
     <string name="settings_message">Future settings will be here:\n\n• Device Admin Permissions\n• Accessibility Service\n• Usage Access\n• Notification Access</string>
     <string name="got_it">GOT IT</string>
-    <string name="accessibility_service_description">Blocks Instagram Reels, Facebook Reels, and YouTube Shorts while allowing normal app usage.</string>
+    <string name="accessibility_service_description">Blocks Instagram Reels and YouTube Shorts while allowing normal app usage.</string>
 </resources>

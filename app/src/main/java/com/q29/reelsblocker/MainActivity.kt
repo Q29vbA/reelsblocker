@@ -64,8 +64,21 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         // Check if accessibility service was enabled while away
-        if (isAccessibilityServiceEnabled() && !isEnabled) {
-            Log.d(TAG, "Accessibility service is now enabled")
+        if (isAccessibilityServiceEnabled()) {
+            Log.d(TAG, "Accessibility service is enabled")
+            if (!isEnabled) {
+                // Service is enabled but app state shows disabled - sync them
+                val prefs = getSharedPreferences("ReelsBlockerPrefs", Context.MODE_PRIVATE)
+                val savedState = prefs.getBoolean("blocking_enabled", false)
+                if (savedState) {
+                    // Update UI to match saved state
+                    isEnabled = true
+                    enableButton.text = "DISABLE"
+                    enableButton.setBackgroundColor(resources.getColor(android.R.color.holo_red_light, theme))
+                }
+            }
+        } else {
+            Log.d(TAG, "Accessibility service is NOT enabled")
         }
     }
 
@@ -81,7 +94,7 @@ class MainActivity : AppCompatActivity() {
         notifyAccessibilityService(true)
 
         Log.d(TAG, "Blocking enabled")
-        Toast.makeText(this, "BLOCKER ENABLED! Open Instagram/Facebook/YouTube to test", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "BLOCKER ENABLED! Now testing refined detection - home feeds should work normally", Toast.LENGTH_LONG).show()
     }
 
     private fun disableBlocking() {
@@ -110,22 +123,22 @@ class MainActivity : AppCompatActivity() {
         isEnabled = prefs.getBoolean("blocking_enabled", false)
         Log.d(TAG, "Loaded blocking state: $isEnabled")
 
-        if (isEnabled) {
+        if (isEnabled && isAccessibilityServiceEnabled()) {
             enableButton.text = "DISABLE"
             enableButton.setBackgroundColor(resources.getColor(android.R.color.holo_red_light, theme))
         }
     }
 
     private fun notifyAccessibilityService(enabled: Boolean) {
-        val intent = Intent(this, SimpleReelsBlockerService::class.java)
+        val intent = Intent(this, RefinedReelsBlockerService::class.java)
         intent.action = "TOGGLE_BLOCKING"
         intent.putExtra("enabled", enabled)
         startService(intent)
-        Log.d(TAG, "Notified accessibility service: $enabled")
+        Log.d(TAG, "Notified refined accessibility service: $enabled")
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
-        val service = "${packageName}/${SimpleReelsBlockerService::class.java.canonicalName}"
+        val service = "${packageName}/${RefinedReelsBlockerService::class.java.canonicalName}"
         val enabledServices = Settings.Secure.getString(
             contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
@@ -134,7 +147,6 @@ class MainActivity : AppCompatActivity() {
         val isEnabled = enabledServices.contains(service)
         Log.d(TAG, "Accessibility service enabled: $isEnabled")
         Log.d(TAG, "Looking for service: $service")
-        Log.d(TAG, "Enabled services: $enabledServices")
 
         return isEnabled
     }
@@ -143,7 +155,7 @@ class MainActivity : AppCompatActivity() {
         val dialogBuilder = AlertDialog.Builder(this, R.style.BrutalistDialog)
 
         dialogBuilder.setTitle("ACCESSIBILITY REQUIRED")
-        dialogBuilder.setMessage("To detect when you open Instagram/Facebook/YouTube, this app needs accessibility permission.\n\n1. Tap 'OPEN SETTINGS'\n2. Find 'Reels Blocker'\n3. Toggle it ON\n4. Come back and tap ENABLE")
+        dialogBuilder.setMessage("To block Reels and Shorts (but allow normal feeds), this app needs accessibility permission.\n\n1. Tap 'OPEN SETTINGS'\n2. Find 'Reels Blocker'\n3. Toggle it ON\n4. Come back and tap ENABLE")
 
         dialogBuilder.setPositiveButton("OPEN SETTINGS") { dialog, _ ->
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
@@ -173,8 +185,8 @@ class MainActivity : AppCompatActivity() {
     private fun showSettingsDialog() {
         val dialogBuilder = AlertDialog.Builder(this, R.style.BrutalistDialog)
 
-        dialogBuilder.setTitle("SETTINGS")
-        dialogBuilder.setMessage("Future settings will be here:\n\n• Device Admin Permissions\n• Accessibility Service\n• Usage Access\n• Notification Access")
+        dialogBuilder.setTitle("DEBUG INFO")
+        dialogBuilder.setMessage("Accessibility Service: ${if (isAccessibilityServiceEnabled()) "✓ ENABLED" else "✗ DISABLED"}\n\nBlocking Status: ${if (isEnabled) "✓ ACTIVE" else "✗ INACTIVE"}\n\nRefined Detection:\n• Less sensitive triggers\n• Confidence scoring system\n• Auto-removes overlay when leaving apps\n\nCheck Logcat for detailed logs:\n• Filter by 'RefinedReelsBlocker'")
 
         dialogBuilder.setPositiveButton("GOT IT") { dialog, _ ->
             dialog.dismiss()
