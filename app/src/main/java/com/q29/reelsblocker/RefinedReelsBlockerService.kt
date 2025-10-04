@@ -25,7 +25,11 @@ class RefinedReelsBlockerService : AccessibilityService() {
     private var currentApp = ""
     private var isBlocked = false
 
-    // Much simpler persistence - just count detections
+    // Simple periodic checking - check every 1 second
+    private val CHECK_INTERVAL_MS = 1000L
+    private var isCheckingActive = false
+
+    // Persistence tracking
     private var reelsDetectionCount = 0
     private val REQUIRED_DETECTIONS = 2
 
@@ -33,19 +37,18 @@ class RefinedReelsBlockerService : AccessibilityService() {
         private const val TAG = "RefinedReelsBlocker"
     }
 
-    // ULTRA-SPECIFIC detection - only look for elements that are DEFINITELY reels/shorts
     private val targetApps = setOf(
         "com.instagram.android",
+        "com.facebook.katana",
         "com.google.android.youtube"
     )
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        Log.d(TAG, "Simple Service Connected!")
+        Log.d(TAG, "Service Connected!")
 
         val info = AccessibilityServiceInfo()
-        info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
-                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+        info.eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
         info.packageNames = targetApps.toTypedArray()
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
         info.flags = AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
@@ -55,7 +58,7 @@ class RefinedReelsBlockerService : AccessibilityService() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         checkBlockingStatus()
-        Log.d(TAG, "Simple service setup complete, enabled: $isServiceEnabled")
+        Log.d(TAG, "Service setup complete, enabled: $isServiceEnabled")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -63,54 +66,64 @@ class RefinedReelsBlockerService : AccessibilityService() {
 
         val packageName = event.packageName?.toString() ?: return
 
-        // CRITICAL: Handle app switching properly
+        // Handle app switching
         if (!targetApps.contains(packageName)) {
-            // We're outside target apps - clear everything
+            // Left target apps - stop checking
             if (currentApp.isNotEmpty()) {
                 Log.d(TAG, "LEFT target apps - clearing all state")
+                stopPeriodicChecking()
                 clearState()
             }
             return
         }
 
-        // App switching within target apps
+        // Entered or switched within target apps
         if (currentApp != packageName) {
-            Log.d(TAG, "Switched from '$currentApp' to '$packageName' - clearing state")
+            Log.d(TAG, "Entered/switched to: $packageName")
             clearState()
             currentApp = packageName
         }
 
-        Log.d(TAG, "Event in $packageName: ${getEventTypeName(event.eventType)}")
-
-        when (event.eventType) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                // Major UI change - reset and check
-                reelsDetectionCount = 0
-                handler.postDelayed({
-                    checkForReelsContent(packageName)
-                }, 500)
-            }
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                // Content change - debounced check
-                handler.removeCallbacks(contentCheckRunnable)
-                handler.postDelayed(contentCheckRunnable, 800)
-            }
+        // Start periodic checking if not already running
+        if (!isCheckingActive) {
+            startPeriodicChecking()
         }
     }
 
-    private val contentCheckRunnable = Runnable {
-        if (currentApp.isNotEmpty()) {
+    private fun startPeriodicChecking() {
+        if (isCheckingActive) return
+
+        isCheckingActive = true
+        Log.d(TAG, "▶️ Started periodic checking every ${CHECK_INTERVAL_MS}ms")
+        scheduleNextCheck()
+    }
+
+    private fun stopPeriodicChecking() {
+        isCheckingActive = false
+        handler.removeCallbacks(periodicCheckRunnable)
+        Log.d(TAG, "⏸️ Stopped periodic checking")
+    }
+
+    private fun scheduleNextCheck() {
+        if (!isCheckingActive) return
+        handler.postDelayed(periodicCheckRunnable, CHECK_INTERVAL_MS)
+    }
+
+    private val periodicCheckRunnable = Runnable {
+        if (isCheckingActive && currentApp.isNotEmpty()) {
             checkForReelsContent(currentApp)
+            scheduleNextCheck()
         }
     }
 
     private fun checkForReelsContent(packageName: String) {
         val rootNode = rootInActiveWindow ?: return
 
-        Log.d(TAG, "=== Checking for reels in $packageName ===")
+        Log.d(TAG, "=== Periodic check for reels in $packageName ===")
 
         val isReels = when (packageName) {
             "com.instagram.android" -> detectInstagramReels(rootNode)
+            "com.facebook.katana" -> detectFacebookReels(rootNode)
             "com.google.android.youtube" -> detectYouTubeShorts(rootNode)
             else -> false
         }
@@ -246,12 +259,32 @@ class RefinedReelsBlockerService : AccessibilityService() {
         return shortFormContentInterface && !allowedStates
     }
 
+    private fun detectFacebookReels(rootNode: AccessibilityNodeInfo): Boolean {
+        // Facebook-specific view IDs for reels detection
+        val isReelLayout = !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/video_reels_container").isEmpty() ||
+                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/reels_tab_content").isEmpty() ||
+                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/watch_reels_player").isEmpty() ||
+                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/video_home_reels").isEmpty()
+
+        val isTimelineLayout = !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/news_feed_container").isEmpty() ||
+                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/newsfeed_story_message").isEmpty() ||
+                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/timeline_cover_photo").isEmpty()
+
+        val isMessengerLayout = !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/messenger_chat_head").isEmpty() ||
+                !rootNode.findAccessibilityNodeInfosByViewId("com.facebook.katana:id/chat_composer").isEmpty()
+
+        Log.d(TAG, "Facebook Layout Detection: reel=$isReelLayout, timeline=$isTimelineLayout, messenger=$isMessengerLayout")
+
+        return isReelLayout && !isTimelineLayout && !isMessengerLayout
+    }
+
     private fun blockContent(packageName: String) {
         if (isBlocked) return
 
         isBlocked = true
         val appName = when (packageName) {
             "com.instagram.android" -> "INSTAGRAM"
+            "com.facebook.katana" -> "FACEBOOK"
             "com.google.android.youtube" -> "YOUTUBE"
             else -> "APP"
         }
@@ -323,22 +356,16 @@ class RefinedReelsBlockerService : AccessibilityService() {
         Log.d(TAG, "Blocking status: $isServiceEnabled")
     }
 
-    private fun getEventTypeName(eventType: Int): String {
-        return when (eventType) {
-            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> "WINDOW_STATE"
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> "CONTENT_CHANGE"
-            else -> "OTHER"
-        }
-    }
-
     override fun onInterrupt() {
         Log.d(TAG, "Service interrupted")
+        stopPeriodicChecking()
         clearState()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "Service destroyed")
+        stopPeriodicChecking()
         clearState()
     }
 
@@ -347,6 +374,7 @@ class RefinedReelsBlockerService : AccessibilityService() {
             isServiceEnabled = intent.getBooleanExtra("enabled", false)
             Log.d(TAG, "Blocking toggled to: $isServiceEnabled")
             if (!isServiceEnabled) {
+                stopPeriodicChecking()
                 clearState()
             }
         }
